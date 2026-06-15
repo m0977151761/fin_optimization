@@ -37,13 +37,14 @@
         
         .input-wrapper { display: flex; align-items: center; gap: 5px; }
         input[type="number"] {
-            width: 65px; background: rgba(0,0,0,0.2); border: 1px solid #475569; 
+            width: 70px; background: rgba(0,0,0,0.2); border: 1px solid #475569; 
             color: #38bdf8; font-weight: bold; text-align: right; border-radius: 4px; 
             padding: 4px 6px; font-size: 0.9rem;
         }
         input[type="number"]:focus { outline: none; border-color: #38bdf8; }
         input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-        .unit-label { font-size: 0.8rem; color: #94a3b8; width: 30px; }
+        .unit-label { font-size: 0.8rem; color: #94a3b8; width: 35px; }
+        .hint-text { font-size: 0.75rem; color: #64748b; text-align: right; margin-top: 2px; }
 
         input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; background: #475569; height: 5px; border-radius: 3px; appearance: none; }
         input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #38bdf8; }
@@ -86,7 +87,7 @@
 
         <div class="panel active" id="panel1">
             <h1>規格驗證 (Validation)</h1>
-            <div class="desc">手動設定幾何尺寸，系統將即時計算系統對流熱阻 (θ_CA) 與解熱功率。</div>
+            <div class="desc">手動設定幾何與材質，即時計算系統對流熱阻 (θ_CA) 與解熱功率。</div>
             
             <div class="section-title">基底參數 (Base)</div>
             <div class="control-group">
@@ -112,7 +113,13 @@
                 <input type="range" id="in_t" min="0.5" max="5" value="1.5" step="0.1">
             </div>
 
-            <div class="section-title">環境條件 (Environment)</div>
+            <div class="section-title">材質與環境 (Material & Env)</div>
+            <div class="control-group">
+                <div class="label-row"><span>導熱係數 (k)</span><div class="input-wrapper"><input type="number" id="num_k" min="10" max="450" value="200"><span class="unit-label">W/mK</span></div></div>
+                <input type="range" id="in_k" min="10" max="450" value="200" step="5">
+                <div class="hint-text">常見參考值：鋁合金 ~200 | 純銅 ~400</div>
+            </div>
+            
             <div class="control-group">
                 <div class="label-row"><span>對流係數 (h)</span><div class="input-wrapper"><input type="number" id="num_h" min="5" max="250" value="30"><span class="unit-label">W/m²K</span></div></div>
                 <input type="range" id="in_h" min="5" max="250" value="30" step="5">
@@ -125,9 +132,9 @@
 
         <div class="panel" id="panel2">
             <h1>空間最佳化 (Optimization)</h1>
-            <div class="desc">輸入散熱器允許的最大封裝空間與環境，系統將透過演算法找出熱阻最低的最佳「鰭片數量」與「厚度」。</div>
+            <div class="desc">輸入最大封裝空間與環境，演算法將找出最低熱阻的最佳「鰭片數量」與「厚度」。</div>
             
-            <div class="section-title">最大允許空間限制 (Bounding Box)</div>
+            <div class="section-title">最大允許空間限制</div>
             <div class="control-group">
                 <div class="label-row"><span>最大長度 (Max Length)</span><div class="input-wrapper"><input type="number" id="opt_L_base" value="120"><span class="unit-label">mm</span></div></div>
             </div>
@@ -138,7 +145,10 @@
                 <div class="label-row"><span>可用鰭片高度 (Max Fin H)</span><div class="input-wrapper"><input type="number" id="opt_L" value="40"><span class="unit-label">mm</span></div></div>
             </div>
 
-            <div class="section-title">環境與材料限制</div>
+            <div class="section-title">材質與環境限制</div>
+            <div class="control-group">
+                <div class="label-row"><span>材質導熱係數 (k)</span><div class="input-wrapper"><input type="number" id="opt_k" value="200"><span class="unit-label">W/mK</span></div></div>
+            </div>
             <div class="control-group">
                 <div class="label-row"><span>預期對流係數 (h)</span><div class="input-wrapper"><input type="number" id="opt_h" value="30"><span class="unit-label">W/m²K</span></div></div>
             </div>
@@ -177,6 +187,7 @@
             document.getElementById('opt_result').innerText = "";
         }
 
+        // 修改：核心引擎現在會完整接收並運算 k 值
         function rectangular_fin_calculation(L_base_mm, W_base_mm, N, L_mm, t_mm, h_input, deltaT, k = 200) {
             const L_base = L_base_mm / 1000; const W_base = W_base_mm / 1000; 
             const L = L_mm / 1000; const t = t_mm / 1000;
@@ -192,6 +203,7 @@
             }
 
             const Lc = L + (t / 2);
+            // 這裡的 k 值將直接影響 m 參數與效率
             const m = Math.sqrt((2 * effective_h) / (k * t));
             const mLc = m * Lc;
 
@@ -215,6 +227,7 @@
             const max_W_base = parseFloat(document.getElementById('opt_W_base').value);
             const max_L = parseFloat(document.getElementById('opt_L').value);
             const opt_h = parseFloat(document.getElementById('opt_h').value);
+            const opt_k = parseFloat(document.getElementById('opt_k').value); // 讀取最佳化面板的 k
             const current_dT = parseFloat(document.getElementById('num_dT').value);
 
             let best_N = 2;
@@ -223,7 +236,7 @@
 
             for (let test_N = 2; test_N <= 60; test_N++) {
                 for (let test_t = 0.5; test_t <= 4.0; test_t += 0.1) {
-                    let res = rectangular_fin_calculation(max_L_base, max_W_base, test_N, max_L, test_t, opt_h, current_dT);
+                    let res = rectangular_fin_calculation(max_L_base, max_W_base, test_N, max_L, test_t, opt_h, current_dT, opt_k);
                     if (res.Spacing_mm >= 0.2 && res.Rth_total < min_Rth) {
                         min_Rth = res.Rth_total;
                         best_N = test_N;
@@ -236,6 +249,7 @@
             document.getElementById('num_W_base').value = max_W_base; document.getElementById('in_W_base').value = max_W_base;
             document.getElementById('num_L').value = max_L; document.getElementById('in_L').value = max_L;
             document.getElementById('num_h').value = opt_h; document.getElementById('in_h').value = opt_h;
+            document.getElementById('num_k').value = opt_k; document.getElementById('in_k').value = opt_k; // 更新 Mode 1 的 k 值
             
             document.getElementById('num_N').value = best_N; document.getElementById('in_N').value = best_N;
             document.getElementById('num_t').value = best_t.toFixed(1); document.getElementById('in_t').value = best_t.toFixed(1);
@@ -248,14 +262,16 @@
             }, 800);
         }
 
-        const parameters = ['L_base', 'W_base', 'N', 'L', 't', 'h', 'dT'];
+        // 修改：在參數列中加入 'k'
+        const parameters = ['L_base', 'W_base', 'N', 'L', 't', 'k', 'h', 'dT'];
         const resQ = document.getElementById('resQ');
         const resSpacing = document.getElementById('resSpacing');
         const resRth = document.getElementById('resRth');
 
         let scene, camera, renderer, controls, heatsinkGroup;
-        const finMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6, roughness: 0.3 });
-        const baseMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.2 });
+        
+        // 將材質變數拉出，以利後續動態改色
+        let finMat, baseMat;
 
         function init3D() {
             const container = document.getElementById('canvas-container');
@@ -281,6 +297,10 @@
             heatsinkGroup = new THREE.Group();
             scene.add(heatsinkGroup);
 
+            // 初始化材質設定 (預設為鋁銀色)
+            finMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6, roughness: 0.3 });
+            baseMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.2 });
+
             window.addEventListener('resize', () => {
                 camera.aspect = container.clientWidth / container.clientHeight;
                 camera.updateProjectionMatrix();
@@ -290,7 +310,6 @@
         }
 
         function buildHeatsink3D(L_base, W_base, N, L, t) {
-            // 清理舊的網格與幾何體，避免記憶體洩漏
             while(heatsinkGroup.children.length > 0){ 
                 let child = heatsinkGroup.children[0];
                 heatsinkGroup.remove(child);
@@ -299,7 +318,6 @@
             
             const t_base = 5;
             
-            // 這裡已經修正為正確的寫法，不會再有 undefined 的報錯
             const baseGeo = new THREE.BoxGeometry(L_base, t_base, W_base);
             const baseMesh = new THREE.Mesh(baseGeo, baseMat);
             baseMesh.position.set(0, t_base / 2, 0); 
@@ -323,7 +341,8 @@
             const v = {};
             parameters.forEach(id => { v[id] = parseFloat(document.getElementById('num_' + id).value); });
             
-            const res = rectangular_fin_calculation(v.L_base, v.W_base, v.N, v.L, v.t, v.h, v.dT);
+            // 將 v.k 帶入物理運算引擎
+            const res = rectangular_fin_calculation(v.L_base, v.W_base, v.N, v.L, v.t, v.h, v.dT, v.k);
 
             resQ.innerText = res.Q_total.toFixed(2);
             resRth.innerText = res.Rth_total.toFixed(3);
@@ -331,6 +350,16 @@
             
             if (res.Spacing_mm < 2.5) resSpacing.classList.add("warning-text");
             else resSpacing.classList.remove("warning-text");
+
+            // --- 彩蛋功能：根據導熱係數動態變更金屬顏色 ---
+            // 若 k 值超過 300，轉為純銅的偏橘黃色，否則為鋁的金屬銀
+            if (v.k > 300) {
+                finMat.color.setHex(0xb87333); // 銅色
+                baseMat.color.setHex(0xa06020);
+            } else {
+                finMat.color.setHex(0xe2e8f0); // 鋁色
+                baseMat.color.setHex(0x94a3b8);
+            }
 
             buildHeatsink3D(v.L_base, v.W_base, v.N, v.L, v.t);
         }
