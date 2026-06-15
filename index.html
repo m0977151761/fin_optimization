@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 散熱鰭片雙模式優化器 (Validation & Optimization)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #0f172a; color: #f8fafc; height: 100vh; overflow: hidden; display: flex; }
+        
+        /* 側邊欄與頁籤設計 */
+        .sidebar {
+            width: 420px; background-color: #1e293b; display: flex; flex-direction: column;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.3); z-index: 10; height: 100%;
+        }
+        .tabs { display: flex; background: #0f172a; }
+        .tab { 
+            flex: 1; padding: 15px 10px; text-align: center; cursor: pointer; 
+            background: #1e293b; color: #64748b; font-weight: bold; font-size: 0.9rem;
+            border-bottom: 2px solid transparent; transition: 0.3s;
+        }
+        .tab.active { color: #38bdf8; border-bottom: 2px solid #38bdf8; background: #1e293b; }
+        .tab:not(.active) { background: #0f172a; border-bottom: 2px solid #1e293b; }
+        
+        .panel { display: none; padding: 25px; overflow-y: auto; flex: 1; flex-direction: column; gap: 15px; }
+        .panel.active { display: flex; }
+
+        h1 { font-size: 1.2rem; color: #e2e8f0; margin-bottom: 5px; }
+        .desc { font-size: 0.85rem; color: #94a3b8; margin-bottom: 10px; line-height: 1.4; }
+        .section-title { font-size: 0.95rem; color: #94a3b8; margin-top: 5px; border-bottom: 1px dashed #475569; padding-bottom: 5px; }
+        
+        /* 控制元件樣式 */
+        .control-group { display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; }
+        .label-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; color: #cbd5e1; }
+        
+        .input-wrapper { display: flex; align-items: center; gap: 5px; }
+        input[type="number"] {
+            width: 65px; background: rgba(0,0,0,0.2); border: 1px solid #475569; 
+            color: #38bdf8; font-weight: bold; text-align: right; border-radius: 4px; 
+            padding: 4px 6px; font-size: 0.9rem;
+        }
+        input[type="number"]:focus { outline: none; border-color: #38bdf8; }
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .unit-label { font-size: 0.8rem; color: #94a3b8; width: 30px; }
+
+        input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; background: #475569; height: 5px; border-radius: 3px; appearance: none; }
+        input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #38bdf8; }
+
+        .btn-optimize {
+            background: #38bdf8; color: #0f172a; border: none; padding: 12px; border-radius: 8px;
+            font-weight: bold; font-size: 1rem; cursor: pointer; margin-top: 10px; transition: 0.2s;
+        }
+        .btn-optimize:hover { background: #0ea5e9; transform: translateY(-2px); }
+
+        /* 右側 3D 與儀表板 */
+        .main-content { flex: 1; position: relative; height: 100%; }
+        #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        
+        .dashboard {
+            position: absolute; top: 20px; right: 20px; background: rgba(30, 41, 59, 0.9);
+            backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); padding: 20px;
+            border-radius: 12px; width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); pointer-events: none;
+        }
+        .dashboard h2 { font-size: 1.1rem; color: #e2e8f0; margin-bottom: 5px; }
+        .dash-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .dash-item:last-child { border-bottom: none; }
+        .dash-label { font-size: 0.9rem; color: #94a3b8; }
+        .dash-value { font-size: 1.5rem; font-weight: 800; font-family: 'Courier New', Courier, monospace; }
+        
+        #resQ { color: #4ade80; }
+        #resSpacing { color: #facc15; }
+        #resRth { color: #f97316; }
+        .warning-text { color: #ef4444 !important; }
+        .instruction { position: absolute; bottom: 20px; right: 20px; background: rgba(15, 23, 42, 0.6); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; color: #94a3b8; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="tabs">
+            <div class="tab active" id="tab1" onclick="switchTab(1)">Mode 1: 手動驗證</div>
+            <div class="tab" id="tab2" onclick="switchTab(2)">Mode 2: 空間最佳化</div>
+        </div>
+
+        <div class="panel active" id="panel1">
+            <h1>規格驗證 (Validation)</h1>
+            <div class="desc">手動設定幾何尺寸，系統將即時計算系統對流熱阻 (θ_CA) 與解熱功率。</div>
+            
+            <div class="section-title">基底參數 (Base)</div>
+            <div class="control-group">
+                <div class="label-row"><span>基底長度 (L_base)</span><div class="input-wrapper"><input type="number" id="num_L_base" min="20" max="250" value="120"><span class="unit-label">mm</span></div></div>
+                <input type="range" id="in_L_base" min="20" max="250" value="120" step="1">
+            </div>
+            <div class="control-group">
+                <div class="label-row"><span>基底寬度 (W_base)</span><div class="input-wrapper"><input type="number" id="num_W_base" min="10" max="150" value="50"><span class="unit-label">mm</span></div></div>
+                <input type="range" id="in_W_base" min="10" max="150" value="50" step="1">
+            </div>
+            
+            <div class="section-title">鰭片參數 (Fins)</div>
+            <div class="control-group">
+                <div class="label-row"><span>鰭片數量 (N)</span><div class="input-wrapper"><input type="number" id="num_N" min="2" max="60" value="15"><span class="unit-label">片</span></div></div>
+                <input type="range" id="in_N" min="2" max="60" value="15" step="1">
+            </div>
+            <div class="control-group">
+                <div class="label-row"><span>鰭片高度 (L)</span><div class="input-wrapper"><input type="number" id="num_L" min="5" max="100" value="40"><span class="unit-label">mm</span></div></div>
+                <input type="range" id="in_L" min="5" max="100" value="40" step="1">
+            </div>
+            <div class="control-group">
+                <div class="label-row"><span>鰭片厚度 (t)</span><div class="input-wrapper"><input type="number" id="num_t" min="0.5" max="5" value="1.5" step="0.1"><span class="unit-label">mm</span></div></div>
+                <input type="range" id="in_t" min="0.5" max="5" value="1.5" step="0.1">
+            </div>
+
+            <div class="section-title">環境條件 (Environment)</div>
+            <div class="control-group">
+                <div class="label-row"><span>對流係數 (h)</span><div class="input-wrapper"><input type="number" id="num_h" min="5" max="250" value="30"><span class="unit-label">W/m²K</span></div></div>
+                <input type="range" id="in_h" min="5" max="250" value="30" step="5">
+            </div>
+            <div class="control-group">
+                <div class="label-row"><span>環境溫差 (ΔT)</span><div class="input-wrapper"><input type="number" id="num_dT" min="5" max="100" value="50"><span class="unit-label">°C</span></div></div>
+                <input type="range" id="in_dT" min="5" max="100" value="50" step="1">
+            </div>
+        </div>
+
+        <div class="panel" id="panel2">
+            <h1>空間最佳化 (Optimization)</h1>
+            <div class="desc">輸入散熱器允許的最大封裝空間與環境，系統將透過演算法找出熱阻最低的最佳「鰭片數量」與「厚度」。</div>
+            
+            <div class="section-title">最大允許空間限制 (Bounding Box)</div>
+            <div class="control-group">
+                <div class="label-row"><span>最大長度 (Max Length)</span><div class="input-wrapper"><input type="number" id="opt_L_base" value="120"><span class="unit-label">mm</span></div></div>
+            </div>
+            <div class="control-group">
+                <div class="label-row"><span>最大寬度 (Max Width)</span><div class="input-wrapper"><input type="number" id="opt_W_base" value="50"><span class="unit-label">mm</span></div></div>
+            </div>
+            <div class="control-group">
+                <div class="label-row"><span>可用鰭片高度 (Max Fin H)</span><div class="input-wrapper"><input type="number" id="opt_L" value="40"><span class="unit-label">mm</span></div></div>
+            </div>
+
+            <div class="section-title">環境與材料限制</div>
+            <div class="control-group">
+                <div class="label-row"><span>預期對流係數 (h)</span><div class="input-wrapper"><input type="number" id="opt_h" value="30"><span class="unit-label">W/m²K</span></div></div>
+            </div>
+            
+            <button class="btn-optimize" onclick="runOptimization()">開始最佳化計算</button>
+            <div id="opt_result" style="color:#4ade80; font-size:0.9rem; margin-top:10px; text-align:center;"></div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div id="canvas-container"></div>
+        <div class="dashboard">
+            <h2>系統模擬結果</h2>
+            <div class="dash-item">
+                <span class="dash-label">總解熱功率 (Q)</span>
+                <div><span class="dash-value" id="resQ">0.00</span> <span class="dash-label">W</span></div>
+            </div>
+            <div class="dash-item">
+                <span class="dash-label">鰭片間距 (Spacing)</span>
+                <div><span class="dash-value" id="resSpacing">0.00</span> <span class="dash-label">mm</span></div>
+            </div>
+            <div class="dash-item">
+                <span class="dash-label" title="Case-to-Ambient Thermal Resistance">系統熱阻 (θ_CA)</span>
+                <div><span class="dash-value" id="resRth">0.00</span> <span class="dash-label">°C/W</span></div>
+            </div>
+        </div>
+        <div class="instruction">左鍵: 旋轉 | 右鍵: 平移 | 滾輪: 縮放</div>
+    </div>
+
+    <script>
+        function switchTab(tabIndex) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.getElementById('tab' + tabIndex).classList.add('active');
+            document.getElementById('panel' + tabIndex).classList.add('active');
+            document.getElementById('opt_result').innerText = "";
+        }
+
+        function rectangular_fin_calculation(L_base_mm, W_base_mm, N, L_mm, t_mm, h_input, deltaT, k = 200) {
+            const L_base = L_base_mm / 1000; const W_base = W_base_mm / 1000; 
+            const L = L_mm / 1000; const t = t_mm / 1000;
+            const t_base_mm = 5; 
+            const t_base = t_base_mm / 1000;
+
+            const Spacing_mm = (L_base_mm - (N * t_mm)) / (N - 1);
+            
+            let effective_h = h_input;
+            if (Spacing_mm < 3.0) {
+                let penalty = Math.pow(Math.max(0.1, Spacing_mm / 3.0), 2);
+                effective_h = h_input * penalty;
+            }
+
+            const Lc = L + (t / 2);
+            const m = Math.sqrt((2 * effective_h) / (k * t));
+            const mLc = m * Lc;
+
+            let efficiency = 1.0;
+            if (mLc > 0) efficiency = Math.tanh(mLc) / mLc;
+
+            const A_fin = 2 * W_base * Lc; 
+            let A_unfinned = (L_base - (N * t)) * W_base; 
+            if (A_unfinned < 0) A_unfinned = 0; 
+
+            const R_base = t_base / (k * L_base * W_base);
+            const R_conv = 1 / (effective_h * (N * efficiency * A_fin + A_unfinned));
+            const Rth_total = R_base + R_conv;
+            const Q_total = deltaT / Rth_total;
+
+            return { Q_total, Rth_total, Spacing_mm, effective_h };
+        }
+
+        function runOptimization() {
+            const max_L_base = parseFloat(document.getElementById('opt_L_base').value);
+            const max_W_base = parseFloat(document.getElementById('opt_W_base').value);
+            const max_L = parseFloat(document.getElementById('opt_L').value);
+            const opt_h = parseFloat(document.getElementById('opt_h').value);
+            const current_dT = parseFloat(document.getElementById('num_dT').value);
+
+            let best_N = 2;
+            let best_t = 1.0;
+            let min_Rth = Infinity;
+
+            for (let test_N = 2; test_N <= 60; test_N++) {
+                for (let test_t = 0.5; test_t <= 4.0; test_t += 0.1) {
+                    let res = rectangular_fin_calculation(max_L_base, max_W_base, test_N, max_L, test_t, opt_h, current_dT);
+                    if (res.Spacing_mm >= 0.2 && res.Rth_total < min_Rth) {
+                        min_Rth = res.Rth_total;
+                        best_N = test_N;
+                        best_t = test_t;
+                    }
+                }
+            }
+
+            document.getElementById('num_L_base').value = max_L_base; document.getElementById('in_L_base').value = max_L_base;
+            document.getElementById('num_W_base').value = max_W_base; document.getElementById('in_W_base').value = max_W_base;
+            document.getElementById('num_L').value = max_L; document.getElementById('in_L').value = max_L;
+            document.getElementById('num_h').value = opt_h; document.getElementById('in_h').value = opt_h;
+            
+            document.getElementById('num_N').value = best_N; document.getElementById('in_N').value = best_N;
+            document.getElementById('num_t').value = best_t.toFixed(1); document.getElementById('in_t').value = best_t.toFixed(1);
+
+            document.getElementById('opt_result').innerText = `找到最佳化配置！N=${best_N}片, t=${best_t.toFixed(1)}mm`;
+            
+            setTimeout(() => {
+                switchTab(1);
+                updateAll();
+            }, 800);
+        }
+
+        const parameters = ['L_base', 'W_base', 'N', 'L', 't', 'h', 'dT'];
+        const resQ = document.getElementById('resQ');
+        const resSpacing = document.getElementById('resSpacing');
+        const resRth = document.getElementById('resRth');
+
+        let scene, camera, renderer, controls, heatsinkGroup;
+        const finMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.6, roughness: 0.3 });
+        const baseMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.2 });
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 2000);
+            
+            camera.position.set(120, 100, 180);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(100, 200, 100); scene.add(dirLight);
+            
+            const gridHelper = new THREE.GridHelper(300, 30, 0x475569, 0x1e293b);
+            gridHelper.position.y = -10; scene.add(gridHelper);
+
+            heatsinkGroup = new THREE.Group();
+            scene.add(heatsinkGroup);
+
+            window.addEventListener('resize', () => {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+            animate();
+        }
+
+        function buildHeatsink3D(L_base, W_base, N, L, t) {
+            // 清理舊的網格與幾何體，避免記憶體洩漏
+            while(heatsinkGroup.children.length > 0){ 
+                let child = heatsinkGroup.children[0];
+                heatsinkGroup.remove(child);
+                if(child.geometry) child.geometry.dispose();
+            }
+            
+            const t_base = 5;
+            
+            // 這裡已經修正為正確的寫法，不會再有 undefined 的報錯
+            const baseGeo = new THREE.BoxGeometry(L_base, t_base, W_base);
+            const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+            baseMesh.position.set(0, t_base / 2, 0); 
+            heatsinkGroup.add(baseMesh);
+
+            const span = L_base - t; 
+            const startX = -span / 2; 
+            const stepX = span / (N > 1 ? N - 1 : 1);
+            
+            const finGeo = new THREE.BoxGeometry(t, L, W_base);
+            for (let i = 0; i < N; i++) {
+                const fin = new THREE.Mesh(finGeo, finMat);
+                fin.position.set(startX + i * stepX, t_base + (L / 2), 0);
+                heatsinkGroup.add(fin);
+            }
+        }
+
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+
+        function updateAll() {
+            const v = {};
+            parameters.forEach(id => { v[id] = parseFloat(document.getElementById('num_' + id).value); });
+            
+            const res = rectangular_fin_calculation(v.L_base, v.W_base, v.N, v.L, v.t, v.h, v.dT);
+
+            resQ.innerText = res.Q_total.toFixed(2);
+            resRth.innerText = res.Rth_total.toFixed(3);
+            resSpacing.innerText = res.Spacing_mm.toFixed(2);
+            
+            if (res.Spacing_mm < 2.5) resSpacing.classList.add("warning-text");
+            else resSpacing.classList.remove("warning-text");
+
+            buildHeatsink3D(v.L_base, v.W_base, v.N, v.L, v.t);
+        }
+
+        parameters.forEach(id => {
+            const slider = document.getElementById('in_' + id); const numBox = document.getElementById('num_' + id);
+            slider.addEventListener('input', () => { numBox.value = slider.value; updateAll(); });
+            numBox.addEventListener('input', () => { if (!isNaN(parseFloat(numBox.value))) { slider.value = numBox.value; updateAll(); } });
+            numBox.addEventListener('change', () => {
+                let val = parseFloat(numBox.value); let min = parseFloat(slider.min); let max = parseFloat(slider.max);
+                if (isNaN(val) || val < min) val = min; if (val > max) val = max;
+                numBox.value = val; slider.value = val; updateAll();
+            });
+        });
+
+        window.onload = () => { init3D(); updateAll(); };
+    </script>
+</body>
+</html>
